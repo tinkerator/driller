@@ -8,22 +8,41 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"strings"
 
+	"zappem.net/pub/graphics/svgof"
 	"zappem.net/pub/math/polygon"
 )
 
 var (
-	src  = flag.String("src", "", "required input *-PTH.drl file")
-	dest = flag.String("dest", "./default", "destination path for output")
+	src    = flag.String("src", "", "required input *-PTH.drl file")
+	dest   = flag.String("dest", "./default", "destination path for output")
+	dither = flag.Float64("dither", 0.05, "mm width of rendered lines")
 )
 
 // Tool defines drill usage details in mm units.
 type Tool struct {
-	Diameter float64
-	Holes    []polygon.Point
+	Radius float64
+	Holes  []polygon.Point
+}
+
+// flatCircle renders a circle polygon as a line.
+func flatCircle(s *svgof.SVG, x, y, r float64) {
+	pts := 16 * r / *dither
+	if pts < 16 {
+		pts = 16
+	}
+	var xs, ys []float64
+	seg := 2 * math.Pi / pts
+	for i := 0.0; i < pts; i++ {
+		a := seg * i
+		xs = append(xs, x+r*math.Cos(a))
+		ys = append(ys, y+r*math.Sin(a))
+	}
+	s.Polygon(xs, ys, `fill="none"`, `stroke="black"`, fmt.Sprintf(`stroke-width="%.3f"`, *dither))
 }
 
 func main() {
@@ -41,8 +60,9 @@ func main() {
 	var current string
 	factor := 0.0
 	tools := make(map[string]*Tool)
-
+	var ll, tr polygon.Point
 	sc := bufio.NewScanner(f)
+	started := false
 	count := 0
 	for sc.Scan() {
 		line := sc.Text()
@@ -75,7 +95,7 @@ func main() {
 				log.Fatalf("ERROR:%d: redefined tool %q", count, line)
 			}
 			tools[tool] = &Tool{
-				Diameter: width * factor,
+				Radius: 0.5 * width * factor,
 			}
 		case line[:1] == "T":
 			tool := line[1:]
@@ -97,10 +117,28 @@ func main() {
 			if !ok {
 				log.Fatalf("ERROR:%d: reference to undefined tool %q", count, current)
 			}
+			X, Y := x*factor, y*factor
 			use.Holes = append(use.Holes, polygon.Point{
-				X: x * factor,
-				Y: y * factor,
+				X: X,
+				Y: Y,
 			})
+			if !started {
+				ll = use.Holes[0]
+				tr = use.Holes[0]
+				started = true
+			}
+			if left := X - use.Radius; left < ll.X {
+				ll.X = left
+			}
+			if right := X + use.Radius; right > tr.X {
+				tr.X = right
+			}
+			if down := Y - use.Radius; down < ll.Y {
+				ll.Y = down
+			}
+			if up := Y + use.Radius; up > tr.Y {
+				tr.Y = up
+			}
 		default:
 			fmt.Printf("WARNING:%d: ignoring %q\n", count, line)
 		}
@@ -108,8 +146,28 @@ func main() {
 	if err := sc.Err(); err != nil {
 		log.Fatal(err)
 	}
+
+	svgPath := fmt.Sprintf("%s-drill.svg", *dest)
+	s, err := os.Create(svgPath)
+	if err != nil {
+		log.Fatalf("failed to create %q: %v", svgPath, err)
+	}
+	defer s.Close()
+	canvas := svgof.New(s)
+	canvas.Decimals = 3
+	canvas.StartviewUnit(tr.X-ll.X, tr.Y-ll.Y, "mm", ll.X, ll.Y, tr.X-ll.X, tr.Y-ll.Y)
+
 	for _, use := range tools {
-		path := fmt.Sprintf("%s-C%.3f-PTH.drl", *dest, use.Diameter)
+		dr := use.Radius - *dither/2
+		if dr < *dither {
+			dr = *dither
+		}
+		for _, pt := range use.Holes {
+			flatCircle(canvas, pt.X, pt.Y, dr)
+		}
+
+		diameter := use.Radius * 2
+		path := fmt.Sprintf("%s-C%.3f-PTH.drl", *dest, diameter)
 		w, err := os.Create(path)
 		if err != nil {
 			log.Fatalf("unable to create %q: %v", path, err)
@@ -121,11 +179,13 @@ T1C%.3f
 G90
 G05
 T1
-`, use.Diameter)
+`, diameter)
 		for _, pt := range use.Holes {
 			fmt.Fprintf(w, "X%.2fY%.2f\n", pt.X, pt.Y)
 		}
 		fmt.Fprintln(w, "M30")
 		w.Close()
 	}
+
+	canvas.End()
 }
