@@ -147,7 +147,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	svgPath := fmt.Sprintf("%s-drill.svg", *dest)
+	svgPath := fmt.Sprintf("%s.drl.svg", *dest)
 	s, err := os.Create(svgPath)
 	if err != nil {
 		log.Fatalf("failed to create %q: %v", svgPath, err)
