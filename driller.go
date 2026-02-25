@@ -1,6 +1,12 @@
 // Program driller converts a combined -PTH.drl file into one-per tool
 // drl files and a combined summary SVG file. This has only been
 // tested with kicad generated drl files.
+//
+// Since the program is generating SVGs and KiCad plots layers to SVGs
+// with positive Y axis values, the program's default behavior is to
+// flip the sign of the output SVG to match KiCad's SVGs. You can
+// retain the original Y values by using the --keep-negative command
+// line flag.
 package main
 
 import (
@@ -21,6 +27,7 @@ var (
 	src    = flag.String("src", "", "required input *-PTH.drl file")
 	dest   = flag.String("dest", "./default", "destination path for output")
 	dither = flag.Float64("dither", 0.05, "mm width of rendered lines")
+	keep   = flag.Bool("keep-negative", false, "retain negative Y axis values for holes")
 )
 
 // Tool defines drill usage details in mm units.
@@ -118,6 +125,9 @@ func main() {
 				log.Fatalf("ERROR:%d: reference to undefined tool %q", count, current)
 			}
 			X, Y := x*factor, y*factor
+			if !*keep {
+				Y = -Y
+			}
 			use.Holes = append(use.Holes, polygon.Point{
 				X: X,
 				Y: Y,
