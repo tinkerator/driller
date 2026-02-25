@@ -27,7 +27,7 @@ var (
 	src    = flag.String("src", "", "required input *-PTH.drl file")
 	dest   = flag.String("dest", "./default", "destination path for output")
 	dither = flag.Float64("dither", 0.05, "mm width of rendered lines")
-	keep   = flag.Bool("keep-negative", false, "retain negative Y axis values for holes")
+	keep   = flag.Bool("keep-negative", false, "retain negative Y axis values for SVG holes")
 )
 
 // Tool defines drill usage details in mm units.
@@ -191,7 +191,11 @@ G05
 T1
 `, diameter)
 		for _, pt := range use.Holes {
-			fmt.Fprintf(w, "X%.2fY%.2f\n", pt.X, pt.Y)
+			y := pt.Y
+			if !*keep {
+				y = -y
+			}
+			fmt.Fprintf(w, "X%.2fY%.2f\n", pt.X, y)
 		}
 		fmt.Fprintln(w, "M30")
 		w.Close()
